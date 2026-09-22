@@ -16,11 +16,12 @@ class FakeEngine:
         ParamSpec("takes_note", "Notiz", "text", ""),
     )
 
-    def __init__(self, engine_id="fake", label="Fake", needs_ref_text=False):
+    def __init__(self, engine_id="fake", label="Fake", needs_ref_text=False, needs_ref_audio=False):
         self.id = engine_id
         self.label = label
         self.model_id = f"fake/{engine_id}"
         self.needs_ref_text = needs_ref_text
+        self.needs_ref_audio = needs_ref_audio
         self.loaded = False
         self.calls: list[dict] = []
 

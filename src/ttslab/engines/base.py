@@ -38,6 +38,7 @@ class Engine(Protocol):
     label: str
     model_id: str
     needs_ref_text: bool
+    needs_ref_audio: bool
     params: tuple[ParamSpec, ...]
 
     def load(self) -> None:

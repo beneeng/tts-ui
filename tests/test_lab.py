@@ -121,3 +121,35 @@ def test_seeds_are_random_but_distinct_without_base_seed():
 
     assert len(set(seeds)) == 3
     assert seeds_for(3, 5) == [5, 6, 7]
+
+
+def test_engine_needing_reference_audio_rejects_missing_voice(voice_store, run_store):
+    """Chatterbox hat im MLX-Repo keine Standardstimme, das muss die Logik abfangen."""
+    from ttslab.registry import EngineEntry, Registry
+
+    from .conftest import FakeEngine
+
+    engine = FakeEngine("braucht-audio", needs_ref_audio=True)
+    registry = Registry([EngineEntry(engine.id, engine.label, lambda: engine)])
+
+    with pytest.raises(ValueError, match="Stimmprobe"):
+        run_all(
+            registry=registry,
+            voice_store=voice_store,
+            run_store=run_store,
+            text="Hallo.",
+            engine_ids=["braucht-audio"],
+            params_by_engine={},
+            voice_slug=None,
+        )
+
+    run_all(
+        registry=registry,
+        voice_store=voice_store,
+        run_store=run_store,
+        text="Hallo.",
+        engine_ids=["braucht-audio"],
+        params_by_engine={},
+        voice_slug="bene",
+    )
+    assert len(run_store.list()) == 1

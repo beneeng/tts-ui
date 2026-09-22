@@ -7,11 +7,11 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "chatterbox-tts>=0.1.7",
     "gradio>=6.8.0",
-    "mlx-audio>=0.4.2",
+    "mlx-audio>=0.5.5",
     "mlx-whisper>=0.4.3",
-    "setuptools<81",
+    "numpy>=1.26.4",
+    "soundfile>=0.14.0",
 ]
 
 [dependency-groups]

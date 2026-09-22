@@ -202,3 +202,18 @@ def test_engine_error_becomes_ui_error(app, fake_engines, monkeypatch):
 
     with pytest.raises(gr.Error, match="Modell kaputt"):
         generate(app, engine_ids=["fake"])
+
+
+def test_generate_returns_exactly_the_wired_outputs(app):
+    """Gradio bricht zur Laufzeit ab, wenn Anzahl der Rückgaben und Outputs auseinanderlaufen."""
+    last = generate(app)[-1]
+
+    wired = 1 + len(app.result_slots) + 2  # Status + Ergebnis-Slots + Tabelle + Auswahl
+    assert len(last) == wired
+
+
+def test_compare_returns_exactly_the_wired_outputs(app):
+    generate(app)
+    run_id = app.RUNS.list()[0].id
+
+    assert len(app.on_compare([run_id])) == 1 + len(app.compare_slots)

@@ -7,7 +7,7 @@ Alles läuft auf dem eigenen Rechner. Nichts wird hochgeladen.
 
 ## Voraussetzungen
 
-- Mac mit Apple Silicon (M1 oder neuer). Zwei der drei Engines laufen über Apple MLX.
+- Mac mit Apple Silicon (M1 oder neuer). Alle Engines laufen über Apple MLX.
 - Python 3.11 und [uv](https://docs.astral.sh/uv/)
 - Reichlich Plattenplatz: Die Modelle werden beim ersten Benutzen heruntergeladen (mehrere GB).
 
@@ -27,7 +27,10 @@ von Stimmproben.
 |---|---|---|---|
 | Qwen3-TTS 1.7B | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` | Apache 2.0 | Klonen ab 3 s Stimmprobe, 10 Sprachen |
 | VoxCPM2 | `mlx-community/VoxCPM2-bf16` | Apache 2.0 | 30 Sprachen, nutzt das Transkript der Stimmprobe |
-| Chatterbox Multilingual | `ResembleAI/chatterbox` | MIT | Vergleichsbasis, läuft über PyTorch/MPS |
+| Chatterbox Multilingual | `mlx-community/chatterbox-multilingual-v3` | MIT | Vergleichsbasis, 23 Sprachen, nur mit Stimmprobe |
+
+Chatterbox hat in dieser MLX-Fassung keine eingebaute Standardstimme, es braucht also immer
+eine Stimmprobe. Die Oberfläche sagt das an der Engine dazu und meldet es, bevor etwas rechnet.
 
 Jede Engine bringt ihre eigenen Parameter mit. Die Oberfläche baut die Regler aus dieser
 Deklaration (`ParamSpec` in `src/ttslab/engines/base.py`), eine neue Engine braucht deshalb

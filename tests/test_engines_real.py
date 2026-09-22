@@ -32,6 +32,8 @@ def reference(tmp_path_factory):
 @pytest.mark.parametrize("engine_id", ["qwen3", "voxcpm2", "chatterbox"])
 def test_engine_generates_mono_audio(registry, engine_id):
     engine = registry.get(engine_id)
+    if engine.needs_ref_audio:
+        pytest.skip(f"{engine.label} hat keine eingebaute Stimme")
 
     result = engine.generate(TEXT, None, None, "de", seed=1234)
 

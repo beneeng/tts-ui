@@ -269,7 +269,8 @@ def build_param_components():
     for engine_id in REGISTRY.ids:
         engine = REGISTRY.get(engine_id)
         with gr.Accordion(f"Parameter: {engine.label}", open=False) as accordion:
-            gr.Markdown(f"Modell: `{engine.model_id}`")
+            hint = " · braucht eine Stimmprobe" if engine.needs_ref_audio else ""
+            gr.Markdown(f"Modell: `{engine.model_id}`{hint}")
             for spec in engine.params:
                 components.append(param_component(spec))
                 PARAM_KEYS.append((engine_id, spec.name))

@@ -22,6 +22,7 @@ class MlxEngine:
     label = "MLX"
     model_id = ""
     needs_ref_text = False
+    needs_ref_audio = False
     params: tuple[ParamSpec, ...] = ()
 
     def __init__(self, model_id: str | None = None, loader: Callable[[str], Any] | None = None):
@@ -56,6 +57,7 @@ class MlxEngine:
 
         kwargs: dict[str, Any] = dict(params)
         kwargs.update(self._language_kwargs(language))
+        kwargs.setdefault("verbose", False)  # sonst schreibt mlx-audio pro Segment ins Log
         if ref_audio:
             kwargs["ref_audio"] = ref_audio
             if ref_text:

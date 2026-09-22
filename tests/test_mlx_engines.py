@@ -86,6 +86,24 @@ def test_transcript_without_audio_is_not_sent(qwen, fake_model):
     assert "ref_text" not in fake_model.calls[0]
 
 
+def test_chatterbox_uses_iso_language_codes(monkeypatch, fake_model):
+    monkeypatch.setattr("mlx.core.random.seed", lambda seed: None)
+    from ttslab.engines.chatterbox import ChatterboxEngine
+
+    engine = ChatterboxEngine(loader=lambda model_id: fake_model)
+
+    engine.generate("Hallo.", None, None, "de", seed=1, exaggeration=0.3)
+
+    assert fake_model.calls[0]["lang_code"] == "de"
+    assert fake_model.calls[0]["exaggeration"] == 0.3
+
+
+def test_verbose_logging_is_off(qwen, fake_model):
+    qwen.generate("Hallo.", None, None, "de", seed=1)
+
+    assert fake_model.calls[0]["verbose"] is False
+
+
 def test_voxcpm_sends_no_language_parameter(monkeypatch, fake_model):
     monkeypatch.setattr("mlx.core.random.seed", lambda seed: None)
     engine = VoxCPM2Engine(loader=lambda model_id: fake_model)

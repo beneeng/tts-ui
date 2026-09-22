@@ -44,7 +44,7 @@ def generate_runs(
 
     for engine_id in engine_ids:
         engine = registry.get(engine_id)
-        if sample is None and engine.needs_ref_text:
+        if sample is None and (engine.needs_ref_audio or engine.needs_ref_text):
             raise ValueError(f"{engine.label} braucht eine Stimmprobe.")
         params = clean_params(engine.params, params_by_engine.get(engine_id, {}))
 
