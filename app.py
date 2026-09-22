@@ -4,8 +4,11 @@ import os
 from pathlib import Path
 
 import gradio as gr
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
 
 from ttslab.lab import generate_runs
+from ttslab.recording import ConversionFailed, FfmpegMissing, save_recording
 from ttslab.registry import default_registry
 from ttslab.runs import RunStore
 from ttslab.transcribe import transcribe
@@ -44,6 +47,104 @@ def run_checkbox_choices(runs) -> list[tuple[str, str]]:
         )
         for run in runs
     ]
+
+
+# --- Eigener Recorder ------------------------------------------------------
+# Gradios Aufnahme-Baustein zeichnet waehrend der Aufnahme eine Wellenform und rechnet
+# danach im Browser. In Brave dauert das quadratisch lange (20 s Aufnahme -> 193 s), in
+# Chromium 0,2 s. Dieser Recorder schickt die Rohaufnahme direkt an /ttslab/record.
+
+RECORDER_HTML = """
+<div id="ttslab-recorder" style="border:1px solid var(--border-color-primary);
+     border-radius:var(--radius-lg); padding:12px; display:flex; flex-direction:column; gap:8px;">
+  <div style="display:flex; align-items:center; gap:12px;">
+    <button id="ttslab-rec-toggle" type="button"
+      style="cursor:pointer; padding:8px 16px; border-radius:var(--radius-lg);
+             border:1px solid var(--border-color-primary); background:var(--button-secondary-background-fill);
+             color:var(--button-secondary-text-color); font-weight:600;">Aufnahme starten</button>
+    <span id="ttslab-rec-status" style="color:var(--body-text-color-subdued);">Bereit.</span>
+  </div>
+  <audio id="ttslab-rec-preview" controls style="display:none; width:100%;"></audio>
+</div>
+"""
+
+RECORDER_SCRIPT = """
+<script>
+(() => {
+  // Gradio baut den Tab-Inhalt erst beim Oeffnen, deshalb haengt der Handler am Dokument
+  // und nicht am Knopf.
+  if (window.__ttslabRecorderReady) return;
+  window.__ttslabRecorderReady = true;
+
+  let recorder = null, chunks = [], ticker = null, startedAt = 0;
+
+  const byId = (id) => document.getElementById(id);
+  const setStatus = (text) => { const el = byId('ttslab-rec-status'); if (el) el.textContent = text; };
+  const setLabel = (text) => { const el = byId('ttslab-rec-toggle'); if (el) el.textContent = text; };
+  const setPath = (value) => {
+    const field = document.querySelector('#ttslab-recorded-path textarea, #ttslab-recorded-path input');
+    if (!field) return;
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  const stopTicker = () => { clearInterval(ticker); ticker = null; };
+
+  document.addEventListener('click', async (event) => {
+    if (!event.target.closest('#ttslab-rec-toggle')) return;
+
+    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+
+    setPath('');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      setStatus('Kein Zugriff auf das Mikrofon: ' + error.name);
+      return;
+    }
+
+    chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      stopTicker();
+      setLabel('Aufnahme starten');
+
+      const blob = new Blob(chunks, { type: recorder.mimeType });
+      const preview = byId('ttslab-rec-preview');
+      if (preview) { preview.src = URL.createObjectURL(blob); preview.style.display = 'block'; }
+      setStatus('Uebertrage ' + Math.round(blob.size / 1024) + ' kB ...');
+
+      const started = performance.now();
+      try {
+        const response = await fetch('ttslab/record', {
+          method: 'POST',
+          headers: { 'Content-Type': blob.type || 'audio/webm' },
+          body: blob,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || ('HTTP ' + response.status));
+        setPath(data.path);
+        setStatus('Aufnahme bereit (' + ((performance.now() - started) / 1000).toFixed(1)
+                  + ' s). Jetzt Namen vergeben und speichern.');
+      } catch (error) {
+        setStatus('Aufnahme konnte nicht uebertragen werden: ' + error.message);
+      }
+    };
+
+    recorder.start();
+    startedAt = Date.now();
+    setLabel('Aufnahme beenden');
+    stopTicker();
+    ticker = setInterval(() => {
+      setStatus('Aufnahme laeuft ... ' + Math.round((Date.now() - startedAt) / 1000) + ' s');
+    }, 250);
+  });
+})();
+</script>
+"""
 
 
 # --- Tab: Generieren -------------------------------------------------------
@@ -114,13 +215,23 @@ def result_updates(runs, status):
 # --- Tab: Stimmproben ------------------------------------------------------
 
 
-def on_save_voice(audio_path, name, language, note, auto_transcribe):
-    if not audio_path:
+def discard_incoming(path) -> None:
+    """Zwischendatei des Recorders loeschen, die Stimmprobe liegt jetzt im Store."""
+    candidate = Path(path)
+    if candidate.parent == (DATA_DIR / "incoming").resolve() or candidate.parent == DATA_DIR / "incoming":
+        candidate.unlink(missing_ok=True)
+
+
+def on_save_voice(recorded_path, audio_path, name, language, note, auto_transcribe):
+    # Die eigene Aufnahme hat Vorrang vor einer hochgeladenen Datei.
+    source = recorded_path or audio_path
+    if not source:
         raise gr.Error("Bitte erst aufnehmen oder eine Datei hochladen.")
     if not name.strip():
         raise gr.Error("Bitte einen Namen für die Stimmprobe vergeben.")
 
-    sample = VOICES.add(audio_path, name=name, language=language, note=note)
+    sample = VOICES.add(source, name=name, language=language, note=note)
+    discard_incoming(source)
     status = f"Stimmprobe „{sample.name}“ gespeichert."
     if auto_transcribe:
         try:
@@ -142,6 +253,8 @@ def on_save_voice(audio_path, name, language, note, auto_transcribe):
         sample.transcript,
         sample.note,
         sample.audio_path,
+        "",  # Aufnahme-Pfad leeren, damit die naechste Probe frisch beginnt
+        None,  # Upload-Feld leeren
     )
 
 
@@ -176,6 +289,8 @@ def on_delete_voice(slug):
         "",
         "",
         "",
+        "",
+        None,
         "",
         None,
     )
@@ -336,8 +451,14 @@ with gr.Blocks(title="TTS-Lab") as demo:
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("### Neue Stimmprobe")
+                    gr.HTML(RECORDER_HTML)
+                    # Unsichtbare Gradio-Komponenten stehen nicht im DOM, deshalb
+                    # bleibt das Feld gerendert und wird nur per CSS ausgeblendet.
+                    recorded_path = gr.Textbox(
+                        elem_id="ttslab-recorded-path", elem_classes=["ttslab-hidden"]
+                    )
                     new_audio = gr.Audio(
-                        sources=["microphone", "upload"], type="filepath", label="Aufnahme"
+                        sources=["upload"], type="filepath", label="oder Datei hochladen"
                     )
                     new_name = gr.Textbox(label="Name", placeholder="z. B. Bene neutral")
                     new_language = gr.Dropdown(
@@ -446,10 +567,12 @@ with gr.Blocks(title="TTS-Lab") as demo:
         detail_transcript,
         detail_note,
         detail_player,
+        recorded_path,
+        new_audio,
     ]
     save_voice_btn.click(
         fn=on_save_voice,
-        inputs=[new_audio, new_name, new_language, new_note, auto_transcribe],
+        inputs=[recorded_path, new_audio, new_name, new_language, new_note, auto_transcribe],
         outputs=voice_outputs,
     )
     voice_table.select(
@@ -487,11 +610,35 @@ with gr.Blocks(title="TTS-Lab") as demo:
     export_btn.click(fn=on_export_runs, inputs=runs_pick, outputs=export_file)
 
 
+api = FastAPI()
+
+
+@api.post("/ttslab/record")
+async def receive_recording(request: Request):
+    """Rohaufnahme aus dem Browser annehmen und als WAV ablegen."""
+    try:
+        path = save_recording(await request.body(), DATA_DIR / "incoming")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except FfmpegMissing as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ConversionFailed as error:
+        raise HTTPException(
+            status_code=400, detail=f"Aufnahme nicht lesbar: {error}"
+        ) from error
+    return {"path": str(path)}
+
+
+web = gr.mount_gradio_app(
+    api,
+    demo,
+    path="/",
+    theme=gr.themes.Soft(),
+    head=RECORDER_SCRIPT,
+    css=".ttslab-hidden { display: none !important; }",
+    allowed_paths=[str(DATA_DIR.resolve())],
+)
+
+
 if __name__ == "__main__":
-    demo.launch(
-        share=False,
-        server_name="127.0.0.1",
-        server_port=7860,
-        theme=gr.themes.Soft(),
-        allowed_paths=[str(DATA_DIR.resolve())],
-    )
+    uvicorn.run(web, host="127.0.0.1", port=7860)

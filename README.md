@@ -9,6 +9,7 @@ Alles läuft auf dem eigenen Rechner. Nichts wird hochgeladen.
 
 - Mac mit Apple Silicon (M1 oder neuer). Alle Engines laufen über Apple MLX.
 - Python 3.11 und [uv](https://docs.astral.sh/uv/)
+- ffmpeg (`brew install ffmpeg`), wandelt die Aufnahmen aus dem Browser um
 - Reichlich Plattenplatz: Die Modelle werden beim ersten Benutzen heruntergeladen (mehrere GB).
 
 ## Starten
@@ -18,8 +19,7 @@ uv sync
 uv run python app.py
 ```
 
-Dann http://127.0.0.1:7860 öffnen. In Safari, in Chrome hängt die Oberfläche beim Hochladen
-von Stimmproben.
+Dann http://127.0.0.1:7860 öffnen, in einem Browser deiner Wahl.
 
 ## Engines
 
@@ -43,6 +43,10 @@ keine Änderung an der UI.
   Versuche mit verschiedenen Seeds. Ein fester Seed macht Läufe wiederholbar.
 - **Stimmproben**: Aufnehmen oder hochladen, Transkript wird lokal per Whisper erstellt und ist
   editierbar. Das Transkript verbessert bei manchen Engines die Ähnlichkeit deutlich.
+  Die Aufnahme läuft über einen eigenen Recorder, nicht über den von Gradio: Dessen
+  mitlaufende Wellenform braucht in Brave quadratisch lange, gemessen 193 Sekunden für eine
+  Aufnahme von 20 Sekunden. Der eigene Recorder schickt die Rohaufnahme an den Server und
+  braucht dafür 0,3 Sekunden, in Brave wie in Chromium.
 - **Vergleich**: Alle Ergebnisse mit Engine, Seed und Parametern. Mehrere auswählen, untereinander
   anhören, als Favorit markieren, als ZIP exportieren.
 

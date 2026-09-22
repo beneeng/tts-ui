@@ -109,14 +109,42 @@ def test_unused_result_slots_are_hidden(app):
     assert sum(1 for update in players if update.get("visible") is False) == app.MAX_RESULTS - 1
 
 
-def test_save_voice_without_transcription(app, tmp_path):
+def test_save_voice_from_upload(app, tmp_path):
     wav = tmp_path / "neu.wav"
     sf.write(wav, np.zeros(24000, dtype="float32"), 24000)
 
-    status, *_ = app.on_save_voice(str(wav), "Bene", "de", "Notiz", False)
+    status, *_ = app.on_save_voice("", str(wav), "Bene", "de", "Notiz", False)
 
     assert "gespeichert" in status
     assert [sample.name for sample in app.VOICES.list()] == ["Bene"]
+
+
+def test_recording_wins_over_upload(app, tmp_path):
+    """Der eigene Recorder legt die Datei schon ab, sein Pfad hat Vorrang."""
+    recorded = tmp_path / "aufnahme.wav"
+    uploaded = tmp_path / "hochgeladen.wav"
+    sf.write(recorded, np.zeros(48000, dtype="float32"), 24000)
+    sf.write(uploaded, np.zeros(24000, dtype="float32"), 24000)
+
+    app.on_save_voice(str(recorded), str(uploaded), "Bene", "de", "", False)
+
+    assert app.VOICES.get("bene").seconds == 2.0
+
+
+def test_saving_clears_recording_and_upload_fields(app, tmp_path):
+    wav = tmp_path / "neu.wav"
+    sf.write(wav, np.zeros(24000, dtype="float32"), 24000)
+
+    result = app.on_save_voice(str(wav), None, "Bene", "de", "", False)
+
+    assert result[-2:] == ("", None)
+
+
+def test_save_voice_without_any_audio_raises(app):
+    import gradio as gr
+
+    with pytest.raises(gr.Error, match="aufnehmen"):
+        app.on_save_voice("", None, "Bene", "de", "", False)
 
 
 def test_save_voice_survives_failing_transcription(app, tmp_path, monkeypatch):
@@ -126,7 +154,7 @@ def test_save_voice_survives_failing_transcription(app, tmp_path, monkeypatch):
         app, "transcribe", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("kein Modell"))
     )
 
-    status, *_ = app.on_save_voice(str(wav), "Bene", "de", "", True)
+    status, *_ = app.on_save_voice("", str(wav), "Bene", "de", "", True)
 
     assert "fehlgeschlagen" in status
     assert len(app.VOICES.list()) == 1
@@ -217,3 +245,25 @@ def test_compare_returns_exactly_the_wired_outputs(app):
     run_id = app.RUNS.list()[0].id
 
     assert len(app.on_compare([run_id])) == 1 + len(app.compare_slots)
+
+
+def test_recorder_leftovers_are_removed_after_saving(app, tmp_path):
+    """Die Zwischendatei des Recorders soll nicht im Datenverzeichnis liegen bleiben."""
+    incoming = app.DATA_DIR / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    recorded = incoming / "aufnahme.wav"
+    sf.write(recorded, np.zeros(24000, dtype="float32"), 24000)
+
+    app.on_save_voice(str(recorded), None, "Bene", "de", "", False)
+
+    assert not recorded.exists()
+    assert app.VOICES.get("bene").seconds == 1.0
+
+
+def test_uploaded_files_outside_incoming_are_kept(app, tmp_path):
+    uploaded = tmp_path / "woanders.wav"
+    sf.write(uploaded, np.zeros(24000, dtype="float32"), 24000)
+
+    app.on_save_voice("", str(uploaded), "Bene", "de", "", False)
+
+    assert uploaded.exists()
